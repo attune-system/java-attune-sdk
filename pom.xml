@@ -11,7 +11,7 @@
 
     <name>Attune Java SDK</name>
     <description>Java SDK for building Attune actions and sensors</description>
-    <url>https://github.com/AndroxxTraxxon/attune</url>
+    <url>https://github.com/attune-system/attune</url>
 
     <licenses>
         <license>

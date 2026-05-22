@@ -1,6 +1,6 @@
 # attune — Java SDK for Attune Actions & Sensors
 
-A lightweight Java library providing boilerplate for writing [Attune](https://github.com/AndroxxTraxxon/attune) actions and sensors.
+A lightweight Java library providing boilerplate for writing [Attune](https://github.com/attune-system/attune) actions and sensors.
 
 ## Installation
 
