@@ -44,6 +44,27 @@ public class MyAction {
 }
 ```
 
+### Typed Parameters and Results
+
+Use records or POJOs for type-safe parameter deserialization and result serialization:
+
+```java
+import io.attune.Attune;
+
+record MyParams(String name, int count) {}
+record MyResult(String greeting) {}
+
+public class MyAction {
+    public static void main(String[] args) {
+        Attune.runAction(MyParams.class, params -> {
+            return new MyResult("Hello, " + params.name() + "!".repeat(params.count()));
+        });
+    }
+}
+```
+
+Any Jackson-serializable class works — records, POJOs with getters, etc.
+
 ### Accessing Execution Context
 
 The context is a singleton available anywhere:
@@ -121,6 +142,28 @@ public class TemperatureSensor extends PollingSensor {
 
     public static void main(String[] args) {
         Attune.runSensor(TemperatureSensor.class);
+    }
+}
+```
+
+#### Typed Payloads
+
+Sensors can emit typed objects instead of maps using `emitTyped`:
+
+```java
+import io.attune.*;
+
+record TempAlert(double temperature, boolean alert) {}
+
+public class TemperatureSensor extends PollingSensor {
+    { interval = 5000; }
+
+    @Override
+    public void poll(RuleState rule) {
+        double temp = readTemperature();
+        if (temp > 100) {
+            emitTyped(new TempAlert(temp, true), EmitOptions.create().rule(rule));
+        }
     }
 }
 ```

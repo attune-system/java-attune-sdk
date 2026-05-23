@@ -137,11 +137,40 @@ public class Sensor {
     /**
      * Emit a sensor event via the Attune API.
      *
-     * @param payload the event payload
+     * @param payload the event payload as a map
      * @return the event ID if successfully posted, or null on failure
      */
     public Integer emit(Map<String, Object> payload) {
         return emit(payload, EmitOptions.create());
+    }
+
+    /**
+     * Emit a sensor event via the Attune API using a typed payload object.
+     *
+     * <p>The object is serialized to a map using Jackson. Records, POJOs, and any
+     * Jackson-serializable objects are supported.
+     *
+     * @param payload the event payload object
+     * @return the event ID if successfully posted, or null on failure
+     */
+    public Integer emitTyped(Object payload) {
+        return emitTyped(payload, EmitOptions.create());
+    }
+
+    /**
+     * Emit a sensor event via the Attune API using a typed payload object with options.
+     *
+     * <p>The object is serialized to a map using Jackson. Records, POJOs, and any
+     * Jackson-serializable objects are supported.
+     *
+     * @param payload the event payload object
+     * @param options emission options (rule, triggerRef, targetRule)
+     * @return the event ID if successfully posted, or null on failure
+     */
+    @SuppressWarnings("unchecked")
+    public Integer emitTyped(Object payload, EmitOptions options) {
+        Map<String, Object> payloadMap = MAPPER.convertValue(payload, MAP_TYPE);
+        return emit(payloadMap, options);
     }
 
     /**

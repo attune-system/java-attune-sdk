@@ -87,6 +87,41 @@ public final class Attune {
         ActionRunner.run(entrypoint, catchExceptions);
     }
 
+    /**
+     * Run a typed action entrypoint with automatic parameter deserialization.
+     *
+     * <p>Reads JSON parameters from stdin, deserializes them into the given type,
+     * passes the typed object to the function, and writes the result as JSON to stdout.
+     *
+     * <p>Example:
+     * <pre>{@code
+     * record MyParams(String name, int count) {}
+     *
+     * Attune.runAction(MyParams.class, params -> {
+     *     return Map.of("greeting", "Hello, " + params.name() + "!".repeat(params.count()));
+     * });
+     * }</pre>
+     *
+     * @param paramsType the class to deserialize input params into
+     * @param entrypoint function that receives a typed params object and returns a result
+     * @param <T> the params type
+     */
+    public static <T> void runAction(Class<T> paramsType, Function<T, Object> entrypoint) {
+        ActionRunner.run(paramsType, entrypoint);
+    }
+
+    /**
+     * Run a typed action entrypoint with configurable exception handling.
+     *
+     * @param paramsType the class to deserialize input params into
+     * @param entrypoint function that receives a typed params object and returns a result
+     * @param catchExceptions if false, exceptions propagate instead of being reported as JSON
+     * @param <T> the params type
+     */
+    public static <T> void runAction(Class<T> paramsType, Function<T, Object> entrypoint, boolean catchExceptions) {
+        ActionRunner.run(paramsType, entrypoint, catchExceptions);
+    }
+
     // ------------------------------------------------------------------
     // Sensor entry point
     // ------------------------------------------------------------------
