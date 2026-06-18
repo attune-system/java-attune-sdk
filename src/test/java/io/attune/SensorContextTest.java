@@ -12,8 +12,7 @@ class SensorContextTest {
         assertNotNull(ctx);
         assertNotNull(ctx.sensorRef());
         assertEquals("http://localhost:8080", ctx.apiUrl());
-        assertEquals("amqp://localhost:5672", ctx.mqUrl());
-        assertEquals("attune", ctx.mqExchange());
+        assertEquals("ws://localhost:8081/ws", ctx.notifierWsUrl());
         assertEquals("INFO", ctx.logLevel());
     }
 

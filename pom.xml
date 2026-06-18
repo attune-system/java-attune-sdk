@@ -26,7 +26,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jackson.version>2.17.0</jackson.version>
         <slf4j.version>2.0.12</slf4j.version>
-        <rabbitmq.version>5.21.0</rabbitmq.version>
         <junit.version>5.10.2</junit.version>
     </properties>
 
@@ -43,14 +42,6 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>${slf4j.version}</version>
-        </dependency>
-
-        <!-- RabbitMQ (optional — for sensor rule lifecycle) -->
-        <dependency>
-            <groupId>com.rabbitmq</groupId>
-            <artifactId>amqp-client</artifactId>
-            <version>${rabbitmq.version}</version>
-            <optional>true</optional>
         </dependency>
 
         <!-- Test dependencies -->

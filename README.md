@@ -14,15 +14,7 @@ A lightweight Java library providing boilerplate for writing [Attune](https://gi
 </dependency>
 ```
 
-For sensor MQ rule lifecycle support, also add:
-
-```xml
-<dependency>
-    <groupId>com.rabbitmq</groupId>
-    <artifactId>amqp-client</artifactId>
-    <version>5.21.0</version>
-</dependency>
-```
+Managed sensor lifecycle delivery uses the Java 17 built-in `java.net.http.WebSocket` client, so no extra transport dependency is required.
 
 ## Writing Actions
 
@@ -106,7 +98,7 @@ client.post("/api/v1/artifacts/1/versions/file", Map.of("created_by", "my_action
 ## Writing Sensors
 
 Sensors are long-running processes that emit events. The SDK provides rule
-lifecycle management, signal handling, and MQ integration out of the box.
+lifecycle management, signal handling, and notifier WebSocket lifecycle delivery out of the box.
 
 The sensor context is a singleton, accessible anywhere:
 
@@ -222,7 +214,7 @@ public class FileTailSensor extends Sensor {
 
 ### Rule Lifecycle Hooks
 
-All sensor classes support rule lifecycle hooks:
+All sensor classes support rule lifecycle hooks. Managed sensors bootstrap from `ATTUNE_SENSOR_TRIGGERS` and receive live updates from the notifier WebSocket using `ATTUNE_NOTIFIER_WS_URL` plus `ATTUNE_API_TOKEN`:
 
 ```java
 public class StatefulSensor extends PollingSensor {
@@ -275,9 +267,9 @@ public class StatefulSensor extends PollingSensor {
 | `ATTUNE_SENSOR_REF` | Sensor reference |
 | `ATTUNE_SENSOR_ID` | Sensor database ID |
 | `ATTUNE_API_URL` | API base URL |
-| `ATTUNE_API_TOKEN` | Sensor-scoped API token |
-| `ATTUNE_MQ_URL` | RabbitMQ connection URL |
-| `ATTUNE_MQ_EXCHANGE` | RabbitMQ exchange name |
+| `ATTUNE_API_TOKEN` | Sensor-scoped API token used for API calls and WebSocket auth |
+| `ATTUNE_NOTIFIER_WS_URL` | Notifier WebSocket URL for managed sensor lifecycle updates |
+| `ATTUNE_SENSOR_TRIGGERS` | JSON bootstrap payload of active managed rule instances |
 | `ATTUNE_LOG_LEVEL` | Log verbosity |
 
 ## Development

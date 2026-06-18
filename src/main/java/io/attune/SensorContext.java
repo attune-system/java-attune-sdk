@@ -25,8 +25,7 @@ public final class SensorContext {
     private final String sensorId;
     private final String apiUrl;
     private final String apiToken;
-    private final String mqUrl;
-    private final String mqExchange;
+    private final String notifierWsUrl;
     private final String logLevel;
     private final String packRef;
     private final Map<String, String> config;
@@ -34,14 +33,13 @@ public final class SensorContext {
     private volatile AttuneClient client;
 
     private SensorContext(String sensorRef, String sensorId, String apiUrl,
-                          String apiToken, String mqUrl, String mqExchange,
+                          String apiToken, String notifierWsUrl,
                           String logLevel, String packRef, Map<String, String> config) {
         this.sensorRef = sensorRef;
         this.sensorId = sensorId;
         this.apiUrl = apiUrl;
         this.apiToken = apiToken;
-        this.mqUrl = mqUrl;
-        this.mqExchange = mqExchange;
+        this.notifierWsUrl = notifierWsUrl;
         this.logLevel = logLevel;
         this.packRef = packRef;
         this.config = Collections.unmodifiableMap(config);
@@ -69,8 +67,7 @@ public final class SensorContext {
                 env("ATTUNE_SENSOR_ID", "0"),
                 env("ATTUNE_API_URL", "http://localhost:8080"),
                 env("ATTUNE_API_TOKEN", ""),
-                env("ATTUNE_MQ_URL", "amqp://localhost:5672"),
-                env("ATTUNE_MQ_EXCHANGE", "attune"),
+                env("ATTUNE_NOTIFIER_WS_URL", "ws://localhost:8081/ws"),
                 env("ATTUNE_LOG_LEVEL", "info").toUpperCase(),
                 packRef,
                 config
@@ -94,11 +91,8 @@ public final class SensorContext {
     /** The sensor-scoped API token. */
     public String apiToken() { return apiToken; }
 
-    /** The RabbitMQ connection URL. */
-    public String mqUrl() { return mqUrl; }
-
-    /** The RabbitMQ exchange name. */
-    public String mqExchange() { return mqExchange; }
+    /** The notifier WebSocket URL used for managed sensor lifecycle updates. */
+    public String notifierWsUrl() { return notifierWsUrl; }
 
     /** The configured log level. */
     public String logLevel() { return logLevel; }

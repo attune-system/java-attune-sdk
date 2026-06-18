@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,6 +45,59 @@ class SensorTest {
     }
 
     @Test
+    void handleNotifierEnvelopeWithLowercaseLifecycleEvent() {
+        AtomicReference<RuleState> created = new AtomicReference<>();
+        Sensor sensor = new Sensor() {
+            @Override
+            public void onRuleCreated(RuleState rule) {
+                created.set(rule);
+            }
+        };
+
+        sensor.handleNotifierEnvelope(Map.of(
+                "type", "notification",
+                "payload", Map.of(
+                        "event_type", "rule.created",
+                        "rule_id", 42,
+                        "rule_ref", "mypack.my_rule",
+                        "trigger_ref", "my_trigger",
+                        "trigger_params", Map.of("interval", 5000),
+                        "active", true
+                )
+        ));
+
+        assertNotNull(created.get());
+        assertEquals("mypack.my_rule", created.get().ruleRef());
+        assertEquals(Map.of("interval", 5000), created.get().triggerParams());
+    }
+
+    @Test
+    void handleInactiveRuleCreatedDoesNotInvokeCreatedHook() {
+        AtomicReference<RuleState> created = new AtomicReference<>();
+        Sensor sensor = new Sensor() {
+            @Override
+            public void onRuleCreated(RuleState rule) {
+                created.set(rule);
+            }
+        };
+
+        sensor.handleNotifierEnvelope(Map.of(
+                "type", "notification",
+                "payload", Map.of(
+                        "event_type", "rule.created",
+                        "rule_id", 7,
+                        "rule_ref", "mypack.disabled_rule",
+                        "trigger_ref", "my_trigger",
+                        "trigger_params", Map.of("interval", 1000),
+                        "active", false
+                )
+        ));
+
+        assertNull(created.get());
+        assertFalse(sensor.rules().get(7).enabled());
+    }
+
+    @Test
     void handleRuleDeletedMessage() {
         AtomicReference<RuleState> deleted = new AtomicReference<>();
         Sensor sensor = new Sensor() {
@@ -57,7 +109,6 @@ class SensorTest {
             }
         };
 
-        // First create
         Map<String, Object> createMsg = new HashMap<>();
         createMsg.put("event_type", "RuleCreated");
         createMsg.put("rule_id", 1);
@@ -66,7 +117,6 @@ class SensorTest {
         createMsg.put("trigger_params", Collections.emptyMap());
         sensor.handleRuleMessage(createMsg);
 
-        // Then delete
         Map<String, Object> deleteMsg = new HashMap<>();
         deleteMsg.put("event_type", "RuleDeleted");
         deleteMsg.put("rule_id", 1);
@@ -89,7 +139,6 @@ class SensorTest {
             }
         };
 
-        // Create
         Map<String, Object> createMsg = new HashMap<>();
         createMsg.put("event_type", "RuleCreated");
         createMsg.put("rule_id", 1);
@@ -98,7 +147,6 @@ class SensorTest {
         createMsg.put("trigger_params", Map.of("interval", 5000));
         sensor.handleRuleMessage(createMsg);
 
-        // Update
         Map<String, Object> updateMsg = new HashMap<>();
         updateMsg.put("event_type", "RuleUpdated");
         updateMsg.put("rule_id", 1);

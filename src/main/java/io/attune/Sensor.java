@@ -10,9 +10,14 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -25,7 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>Event emission via the Attune API</li>
  *   <li>Structured logging via SLF4J</li>
  *   <li>Bootstrap from {@code ATTUNE_SENSOR_TRIGGERS} environment variable</li>
- *   <li>Optional RabbitMQ consumer for rule lifecycle events</li>
+ *   <li>Managed sensor lifecycle updates via notifier WebSocket</li>
  * </ul>
  *
  * <p>Subclasses should override {@link #run()} for custom event loops, or extend
@@ -55,7 +60,9 @@ public class Sensor {
 
     private final AtomicBoolean shutdownRequested = new AtomicBoolean(false);
     private final ConcurrentHashMap<Integer, RuleState> rules = new ConcurrentHashMap<>();
+    private final Set<String> managedTriggerRefs = ConcurrentHashMap.newKeySet();
     private volatile HttpClient httpClient;
+    private volatile WebSocket lifecycleSocket;
 
     public Sensor() {
         this.context = SensorContext.instance();
@@ -204,7 +211,6 @@ public class Sensor {
         try {
             return doEmit(body);
         } catch (Exception e) {
-            // Retry once on connection errors
             logger.warn("Transport error, retrying: {}", e.getMessage());
             try {
                 return doEmit(body);
@@ -260,36 +266,101 @@ public class Sensor {
     // ------------------------------------------------------------------
 
     @SuppressWarnings("unchecked")
-    void handleRuleMessage(Map<String, Object> message) {
-        String eventType = (String) message.getOrDefault("event_type", "");
-        Object rawRuleId = message.get("rule_id");
-        if (rawRuleId == null) return;
+    void handleNotifierEnvelope(Map<String, Object> envelope) {
+        String type = stringValue(envelope.get("type"));
+        if ("welcome".equals(type)) {
+            return;
+        }
+        if ("error".equals(type)) {
+            logger.warn("Notifier websocket error frame: {}", envelope.getOrDefault("message", envelope));
+            return;
+        }
 
-        int ruleId = ((Number) rawRuleId).intValue();
-        String ruleRef = (String) message.getOrDefault("rule_ref", "rule_" + ruleId);
-        String triggerRef = (String) message.getOrDefault("trigger_ref",
-                (String) message.getOrDefault("trigger_type", ""));
-        Map<String, Object> triggerParams = (Map<String, Object>) message.getOrDefault("trigger_params", Collections.emptyMap());
+        Map<String, Object> payload;
+        if ("notification".equals(type)) {
+            Object rawPayload = envelope.get("payload");
+            if (!(rawPayload instanceof Map<?, ?> rawMap)) {
+                return;
+            }
+            payload = (Map<String, Object>) rawMap;
+        } else if (envelope.containsKey("event_type")) {
+            payload = envelope;
+        } else {
+            return;
+        }
+
+        handleRuleMessage(payload);
+    }
+
+    void handleNotifierText(String text) {
+        try {
+            handleNotifierEnvelope(MAPPER.readValue(text, MAP_TYPE));
+        } catch (Exception e) {
+            logger.warn("Invalid notifier websocket message: {}", e.getMessage());
+        }
+    }
+
+    void handleRuleMessage(Map<String, Object> message) {
+        String eventType = normalizeRuleEventType(stringValue(message.get("event_type")));
+        if (eventType == null) {
+            return;
+        }
+
+        Integer ruleId = intValue(message.get("rule_id"));
+        if (ruleId == null) {
+            return;
+        }
+
+        boolean active = booleanValue(message.get("active"), true);
+        String incomingRuleRef = stringValue(message.get("rule_ref"));
+        String incomingTriggerRef = firstNonBlank(
+                stringValue(message.get("trigger_ref")),
+                stringValue(message.get("trigger_type"))
+        );
+        Map<String, Object> incomingTriggerParams = mapValue(message.get("trigger_params"));
+        if (incomingTriggerRef != null && !incomingTriggerRef.isBlank()) {
+            managedTriggerRefs.add(incomingTriggerRef);
+        }
+
+        RuleState existing = rules.get(ruleId);
+        String ruleRef = firstNonBlank(incomingRuleRef, existing != null ? existing.ruleRef() : null, "rule_" + ruleId);
+        String triggerRef = firstNonBlank(incomingTriggerRef, existing != null ? existing.triggerRef() : null, "");
+        Map<String, Object> triggerParams = !incomingTriggerParams.isEmpty()
+                ? incomingTriggerParams
+                : existing != null ? existing.triggerParams() : Collections.emptyMap();
 
         switch (eventType) {
-            case "RuleCreated", "RuleEnabled" -> {
-                RuleState rule = new RuleState(ruleId, ruleRef, triggerRef, triggerParams, true);
-                RuleState existing = rules.get(ruleId);
+            case "RuleCreated" -> {
+                RuleState rule = new RuleState(ruleId, ruleRef, triggerRef, triggerParams, active);
                 rules.put(ruleId, rule);
 
                 if (existing != null && !existing.triggerParams().equals(triggerParams)) {
                     onRuleUpdated(rule, existing.triggerParams());
-                } else if ("RuleEnabled".equals(eventType) && existing != null) {
+                } else if (existing != null && !existing.enabled() && active) {
+                    onRuleEnabled(rule);
+                } else if (existing != null && existing.enabled() && !active) {
+                    onRuleDisabled(rule);
+                } else if (active) {
+                    onRuleCreated(rule);
+                }
+            }
+            case "RuleEnabled" -> {
+                RuleState rule = new RuleState(ruleId, ruleRef, triggerRef, triggerParams, true);
+                rules.put(ruleId, rule);
+
+                if (existing != null && !existing.triggerParams().equals(triggerParams)) {
+                    onRuleUpdated(rule, existing.triggerParams());
+                } else if (existing != null) {
                     onRuleEnabled(rule);
                 } else {
                     onRuleCreated(rule);
                 }
             }
             case "RuleDisabled" -> {
-                RuleState rule = rules.get(ruleId);
-                if (rule != null) {
-                    rules.put(ruleId, rule.withEnabled(false));
-                    onRuleDisabled(rule);
+                RuleState disabled = new RuleState(ruleId, ruleRef, triggerRef, triggerParams, false);
+                rules.put(ruleId, disabled);
+                if (existing != null) {
+                    onRuleDisabled(disabled);
                 }
             }
             case "RuleDeleted" -> {
@@ -299,18 +370,20 @@ public class Sensor {
                 }
             }
             case "RuleUpdated" -> {
-                RuleState existing = rules.get(ruleId);
+                RuleState updated = new RuleState(
+                        ruleId,
+                        ruleRef,
+                        triggerRef,
+                        triggerParams,
+                        existing == null || existing.enabled()
+                );
+                rules.put(ruleId, updated);
                 if (existing != null) {
-                    Map<String, Object> oldParams = existing.triggerParams();
-                    RuleState updated = existing.withTriggerParams(triggerParams);
-                    rules.put(ruleId, updated);
-                    if (!oldParams.equals(triggerParams)) {
-                        onRuleUpdated(updated, oldParams);
+                    if (!existing.triggerParams().equals(triggerParams)) {
+                        onRuleUpdated(updated, existing.triggerParams());
                     }
-                } else {
-                    RuleState rule = new RuleState(ruleId, ruleRef, triggerRef, triggerParams, true);
-                    rules.put(ruleId, rule);
-                    onRuleCreated(rule);
+                } else if (updated.enabled()) {
+                    onRuleCreated(updated);
                 }
             }
         }
@@ -339,76 +412,111 @@ public class Sensor {
             msg.put("rule_ref", item.getOrDefault("ref", item.getOrDefault("rule_ref", "rule_" + ruleId)));
             msg.put("trigger_ref", item.getOrDefault("trigger_ref", ""));
             msg.put("trigger_params", item.getOrDefault("config", item.getOrDefault("trigger_params", Collections.emptyMap())));
+            msg.put("active", item.getOrDefault("active", true));
             handleRuleMessage(msg);
         }
     }
 
     // ------------------------------------------------------------------
-    // MQ consumer (optional)
+    // Notifier lifecycle stream
     // ------------------------------------------------------------------
 
-    private Thread startMqConsumer() {
-        String mqUrl = System.getenv("ATTUNE_MQ_URL");
-        if (mqUrl == null || mqUrl.isEmpty()) return null;
-
-        // Check if RabbitMQ client is available
-        try {
-            Class.forName("com.rabbitmq.client.ConnectionFactory");
-        } catch (ClassNotFoundException e) {
-            logger.error("RabbitMQ client library required for MQ rule lifecycle. " +
-                    "Add com.rabbitmq:amqp-client to your dependencies.");
+    private Thread startLifecycleStream() {
+        if (managedTriggerRefs.isEmpty()) {
+            logger.info("Skipping notifier websocket listener; no managed trigger refs from ATTUNE_SENSOR_TRIGGERS");
+            return null;
+        }
+        if (context.apiToken().isBlank()) {
+            logger.warn("Skipping notifier websocket listener; ATTUNE_API_TOKEN is not set");
+            return null;
+        }
+        if (context.notifierWsUrl().isBlank()) {
+            logger.warn("Skipping notifier websocket listener; ATTUNE_NOTIFIER_WS_URL is not set");
             return null;
         }
 
-        Thread thread = new Thread(this::mqConsumeLoop, "mq-consumer");
+        Thread thread = new Thread(this::lifecycleConsumeLoop, "notifier-websocket-listener");
         thread.setDaemon(true);
         thread.start();
         return thread;
     }
 
-    private void mqConsumeLoop() {
-        String queueName = "sensor." + context.sensorRef();
-        String[] routingKeys = {"rule.created", "rule.enabled", "rule.disabled", "rule.deleted", "rule.updated"};
-
+    private void lifecycleConsumeLoop() {
         while (!isShuttingDown()) {
+            CountDownLatch closed = new CountDownLatch(1);
+            LifecycleWebSocketListener listener = new LifecycleWebSocketListener(closed);
+            WebSocket webSocket = null;
+
             try {
-                var factory = new com.rabbitmq.client.ConnectionFactory();
-                factory.setUri(context.mqUrl());
-                factory.setRequestedHeartbeat(30);
+                webSocket = getHttpClient().newWebSocketBuilder()
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .header("Authorization", "Bearer " + context.apiToken())
+                        .buildAsync(URI.create(context.notifierWsUrl()), listener)
+                        .join();
+                lifecycleSocket = webSocket;
 
-                try (var connection = factory.newConnection();
-                     var channel = connection.createChannel()) {
+                for (String triggerRef : new TreeSet<>(managedTriggerRefs)) {
+                    subscribeToTriggerRef(webSocket, triggerRef);
+                }
+                logger.info("Notifier websocket connected, trigger_refs={}", new TreeSet<>(managedTriggerRefs));
 
-                    channel.exchangeDeclare(context.mqExchange(), "topic", true);
-                    channel.queueDeclare(queueName, true, false, false, null);
-                    for (String rk : routingKeys) {
-                        channel.queueBind(queueName, context.mqExchange(), rk);
+                while (!isShuttingDown() && closed.getCount() > 0) {
+                    if (closed.await(1, TimeUnit.SECONDS)) {
+                        break;
                     }
-
-                    logger.info("MQ connected, queue={}", queueName);
-
-                    var consumerTag = channel.basicConsume(queueName, false,
-                            (tag, delivery) -> {
-                                try {
-                                    Map<String, Object> message = MAPPER.readValue(delivery.getBody(), MAP_TYPE);
-                                    handleRuleMessage(message);
-                                } catch (Exception e) {
-                                    logger.warn("Invalid MQ message: {}", e.getMessage());
-                                }
-                                channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-                            },
-                            (tag) -> {});
-
-                    // Wait until shutdown
-                    while (!isShuttingDown()) {
-                        sleep(1000);
-                    }
-
-                    channel.basicCancel(consumerTag);
                 }
             } catch (Exception e) {
-                logger.warn("MQ connection error, retrying in 5s: {}", e.getMessage());
+                if (!isShuttingDown()) {
+                    logger.warn("Notifier websocket error, retrying in 5s: {}", e.getMessage());
+                }
+            } finally {
+                if (webSocket != null) {
+                    try {
+                        webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "shutdown").join();
+                    } catch (Exception ignored) {
+                        webSocket.abort();
+                    }
+                }
+                if (lifecycleSocket == webSocket) {
+                    lifecycleSocket = null;
+                }
+                listener.close();
+            }
+
+            if (!isShuttingDown()) {
                 sleep(5000);
+            }
+        }
+    }
+
+    private void subscribeToTriggerRef(WebSocket webSocket, String triggerRef) {
+        if (triggerRef == null || triggerRef.isBlank()) {
+            return;
+        }
+
+        try {
+            String subscribeMessage = MAPPER.writeValueAsString(Map.of(
+                    "type", "subscribe",
+                    "filter", "trigger_ref:" + triggerRef
+            ));
+            webSocket.sendText(subscribeMessage, true).join();
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to subscribe to trigger_ref:" + triggerRef, e);
+        }
+    }
+
+    private void closeLifecycleSocket() {
+        WebSocket webSocket = lifecycleSocket;
+        if (webSocket == null) {
+            return;
+        }
+        try {
+            webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "shutdown").join();
+        } catch (Exception ignored) {
+            webSocket.abort();
+        } finally {
+            if (lifecycleSocket == webSocket) {
+                lifecycleSocket = null;
             }
         }
     }
@@ -420,22 +528,23 @@ public class Sensor {
     /** Programmatically request sensor shutdown. */
     public void shutdown() {
         shutdownRequested.set(true);
+        closeLifecycleSocket();
     }
 
     /**
      * Execute the full sensor lifecycle (called by {@link Attune#runSensor(Class)}).
      */
     int runLifecycle() {
-        // Install shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutdown hook triggered");
             shutdownRequested.set(true);
+            closeLifecycleSocket();
         }));
 
         try {
             bootstrapRules();
             setup();
-            startMqConsumer();
+            startLifecycleStream();
             logger.info("Sensor started, active_rules={}", rules.size());
             run();
         } catch (Exception e) {
@@ -443,6 +552,7 @@ public class Sensor {
             return 1;
         } finally {
             shutdownRequested.set(true);
+            closeLifecycleSocket();
             try {
                 cleanup();
             } catch (Exception e) {
@@ -464,6 +574,105 @@ public class Sensor {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static String normalizeRuleEventType(String eventType) {
+        if (eventType == null || eventType.isBlank()) {
+            return null;
+        }
+        return switch (eventType) {
+            case "rule.created", "RuleCreated" -> "RuleCreated";
+            case "rule.enabled", "RuleEnabled" -> "RuleEnabled";
+            case "rule.disabled", "RuleDisabled" -> "RuleDisabled";
+            case "rule.deleted", "RuleDeleted" -> "RuleDeleted";
+            case "rule.updated", "RuleUpdated" -> "RuleUpdated";
+            default -> null;
+        };
+    }
+
+    private static String stringValue(Object value) {
+        return value instanceof String s ? s : null;
+    }
+
+    private static Integer intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String s) {
+            try {
+                return Integer.parseInt(s);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> mapValue(Object value) {
+        if (value instanceof Map<?, ?> rawMap) {
+            return (Map<String, Object>) rawMap;
+        }
+        return Collections.emptyMap();
+    }
+
+    private static boolean booleanValue(Object value, boolean defaultValue) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return defaultValue;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return values.length > 0 ? values[values.length - 1] : null;
+    }
+
+    private final class LifecycleWebSocketListener implements WebSocket.Listener {
+        private final CountDownLatch closed;
+        private final StringBuilder textBuffer = new StringBuilder();
+
+        private LifecycleWebSocketListener(CountDownLatch closed) {
+            this.closed = closed;
+        }
+
+        @Override
+        public void onOpen(WebSocket webSocket) {
+            webSocket.request(1);
+        }
+
+        @Override
+        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+            textBuffer.append(data);
+            if (last) {
+                handleNotifierText(textBuffer.toString());
+                textBuffer.setLength(0);
+            }
+            webSocket.request(1);
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+            closed.countDown();
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public void onError(WebSocket webSocket, Throwable error) {
+            if (!isShuttingDown()) {
+                logger.warn("Notifier websocket listener error: {}", error.getMessage());
+            }
+            closed.countDown();
+        }
+
+        private void close() {
+            closed.countDown();
         }
     }
 }
