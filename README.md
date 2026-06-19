@@ -110,7 +110,21 @@ SensorContext ctx = Attune.sensorContext();
 System.out.println(ctx.sensorRef());
 System.out.println(ctx.apiUrl());
 System.out.println(ctx.config()); // ATTUNE_SENSOR_CONFIG_* vars
+System.out.println(ctx.apiTokenExpiresAt().orElse("unknown"));
 ```
+
+### Managed Sensor Token Rotation
+
+For managed sensors, the SDK can read a runtime-rotated token state file on each API/WebSocket use:
+
+- Set `ATTUNE_SENSOR_TOKEN_STATE_PATH` to a JSON file path.
+- File shape: `{"token":"<jwt>","expires_at":"<iso-8601>"}`.
+- `api_token` and `token_expires_at` are also accepted aliases.
+
+When configured, event emission and notifier reconnects always use the latest token value read from that file.
+If the file is unavailable and no fallback token exists, the SDK fails closed with a clear token-source error.
+Cross-SDK runtime/platform expectations are documented in
+[docs/managed-sensor-token-rotation-contract.md](docs/managed-sensor-token-rotation-contract.md).
 
 ### Polling Sensor (`PollingSensor`)
 
@@ -268,6 +282,8 @@ public class StatefulSensor extends PollingSensor {
 | `ATTUNE_SENSOR_ID` | Sensor database ID |
 | `ATTUNE_API_URL` | API base URL |
 | `ATTUNE_API_TOKEN` | Sensor-scoped API token used for API calls and WebSocket auth |
+| `ATTUNE_API_TOKEN_EXPIRES_AT` | Optional ISO-8601 expiry metadata for the fallback token |
+| `ATTUNE_SENSOR_TOKEN_STATE_PATH` | Optional JSON file path for runtime-driven managed sensor token rotation |
 | `ATTUNE_NOTIFIER_WS_URL` | Notifier WebSocket URL for managed sensor lifecycle updates |
 | `ATTUNE_SENSOR_TRIGGERS` | JSON bootstrap payload of active managed rule instances |
 | `ATTUNE_LOG_LEVEL` | Log verbosity |

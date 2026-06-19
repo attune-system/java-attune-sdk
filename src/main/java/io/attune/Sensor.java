@@ -426,10 +426,6 @@ public class Sensor {
             logger.info("Skipping notifier websocket listener; no managed trigger refs from ATTUNE_SENSOR_TRIGGERS");
             return null;
         }
-        if (context.apiToken().isBlank()) {
-            logger.warn("Skipping notifier websocket listener; ATTUNE_API_TOKEN is not set");
-            return null;
-        }
         if (context.notifierWsUrl().isBlank()) {
             logger.warn("Skipping notifier websocket listener; ATTUNE_NOTIFIER_WS_URL is not set");
             return null;
@@ -448,9 +444,16 @@ public class Sensor {
             WebSocket webSocket = null;
 
             try {
+                String token = context.apiToken();
+                if (token.isBlank()) {
+                    logger.warn("Notifier websocket token unavailable; retrying in 5s");
+                    sleep(5000);
+                    continue;
+                }
+
                 webSocket = getHttpClient().newWebSocketBuilder()
                         .connectTimeout(Duration.ofSeconds(10))
-                        .header("Authorization", "Bearer " + context.apiToken())
+                        .header("Authorization", "Bearer " + token)
                         .buildAsync(URI.create(context.notifierWsUrl()), listener)
                         .join();
                 lifecycleSocket = webSocket;

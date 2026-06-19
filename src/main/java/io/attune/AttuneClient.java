@@ -10,6 +10,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * Lightweight HTTP client for the Attune API.
@@ -29,7 +31,7 @@ public class AttuneClient {
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
     private final String apiUrl;
-    private final String apiToken;
+    private final Supplier<String> apiTokenSupplier;
     private final HttpClient httpClient;
     private final Duration timeout;
 
@@ -51,11 +53,25 @@ public class AttuneClient {
     }
 
     /**
+     * Create a client with explicit URL and a dynamic token supplier.
+     */
+    public AttuneClient(String apiUrl, Supplier<String> apiTokenSupplier) {
+        this(apiUrl, apiTokenSupplier, Duration.ofSeconds(30));
+    }
+
+    /**
      * Create a client with explicit URL, token, and timeout.
      */
     public AttuneClient(String apiUrl, String apiToken, Duration timeout) {
+        this(apiUrl, () -> apiToken, timeout);
+    }
+
+    /**
+     * Create a client with explicit URL, dynamic token supplier, and timeout.
+     */
+    public AttuneClient(String apiUrl, Supplier<String> apiTokenSupplier, Duration timeout) {
         this.apiUrl = apiUrl.replaceAll("/+$", "");
-        this.apiToken = apiToken != null ? apiToken : "";
+        this.apiTokenSupplier = Objects.requireNonNull(apiTokenSupplier, "apiTokenSupplier cannot be null");
         this.timeout = timeout;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout)
@@ -121,6 +137,7 @@ public class AttuneClient {
                 .uri(URI.create(url))
                 .timeout(timeout)
                 .header("Content-Type", "application/json");
+        String apiToken = resolveApiToken();
         if (!apiToken.isEmpty()) {
             builder.header("Authorization", "Bearer " + apiToken);
         }
@@ -158,6 +175,15 @@ public class AttuneClient {
     /** Returns the configured API URL. */
     public String apiUrl() { return apiUrl; }
 
-    /** Returns the configured API token. */
-    public String apiToken() { return apiToken; }
+    /** Returns the current API token from the configured token supplier. */
+    public String apiToken() { return resolveApiToken(); }
+
+    private String resolveApiToken() {
+        try {
+            String token = apiTokenSupplier.get();
+            return token != null ? token : "";
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Failed to resolve current ATTUNE_API_TOKEN", e);
+        }
+    }
 }
