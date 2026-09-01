@@ -8,9 +8,9 @@ A lightweight Java library providing boilerplate for writing [Attune](https://gi
 
 ```xml
 <dependency>
-    <groupId>io.attune</groupId>
+    <groupId>org.attunedev</groupId>
     <artifactId>attune-sdk</artifactId>
-    <version>0.2.0</version>
+    <version>0.2.1</version>
 </dependency>
 ```
 
