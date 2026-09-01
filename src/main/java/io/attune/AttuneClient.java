@@ -99,6 +99,13 @@ public class AttuneClient {
         return execute(request);
     }
 
+    <T> T get(String path, Map<String, String> params, Class<T> responseType)
+            throws IOException, InterruptedException {
+        String url = buildUrl(path, params);
+        HttpRequest request = newRequestBuilder(url).GET().build();
+        return execute(request, responseType);
+    }
+
     /**
      * Send a POST request with a JSON body and return the parsed JSON response.
      */
@@ -109,6 +116,15 @@ public class AttuneClient {
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
         return execute(request);
+    }
+
+    <T> T post(String path, Object body, Class<T> responseType) throws IOException, InterruptedException {
+        String url = buildUrl(path, null);
+        String json = MAPPER.writeValueAsString(body);
+        HttpRequest request = newRequestBuilder(url)
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        return execute(request, responseType);
     }
 
     /**
@@ -123,6 +139,15 @@ public class AttuneClient {
         return execute(request);
     }
 
+    <T> T put(String path, Object body, Class<T> responseType) throws IOException, InterruptedException {
+        String url = buildUrl(path, null);
+        String json = MAPPER.writeValueAsString(body);
+        HttpRequest request = newRequestBuilder(url)
+                .PUT(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        return execute(request, responseType);
+    }
+
     /**
      * Send a DELETE request and return the parsed JSON response (or null if empty).
      */
@@ -130,6 +155,17 @@ public class AttuneClient {
         String url = buildUrl(path, null);
         HttpRequest request = newRequestBuilder(url).DELETE().build();
         return execute(request);
+    }
+
+    <T> T delete(String path, Class<T> responseType) throws IOException, InterruptedException {
+        String url = buildUrl(path, null);
+        HttpRequest request = newRequestBuilder(url).DELETE().build();
+        return execute(request, responseType);
+    }
+
+    /** Returns the typed Keys API backed by this client's transport and credentials. */
+    public KeysApi keys() {
+        return new KeysApi(this);
     }
 
     private HttpRequest.Builder newRequestBuilder(String url) {
@@ -161,15 +197,34 @@ public class AttuneClient {
     }
 
     private Map<String, Object> execute(HttpRequest request) throws IOException, InterruptedException {
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 400) {
-            throw new IOException("HTTP " + response.statusCode() + ": " + response.body());
-        }
+        return execute(request, MAP_TYPE);
+    }
+
+    private <T> T execute(HttpRequest request, Class<T> responseType) throws IOException, InterruptedException {
+        HttpResponse<String> response = send(request);
         String body = response.body();
         if (body == null || body.isBlank()) {
             return null;
         }
-        return MAPPER.readValue(body, MAP_TYPE);
+        return MAPPER.readValue(body, responseType);
+    }
+
+    private <T> T execute(HttpRequest request, TypeReference<T> responseType)
+            throws IOException, InterruptedException {
+        HttpResponse<String> response = send(request);
+        String body = response.body();
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        return MAPPER.readValue(body, responseType);
+    }
+
+    private HttpResponse<String> send(HttpRequest request) throws IOException, InterruptedException {
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() >= 400) {
+            throw new IOException("HTTP " + response.statusCode() + ": " + response.body());
+        }
+        return response;
     }
 
     /** Returns the configured API URL. */

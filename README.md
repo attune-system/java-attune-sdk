@@ -10,7 +10,7 @@ A lightweight Java library providing boilerplate for writing [Attune](https://gi
 <dependency>
     <groupId>io.attune</groupId>
     <artifactId>attune-sdk</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -94,6 +94,37 @@ AttuneClient client = new AttuneClient();
 Map<String, Object> data = client.get("/api/v1/artifacts", Map.of("execution", "42"));
 client.post("/api/v1/artifacts/1/versions/file", Map.of("created_by", "my_action"));
 ```
+
+The Keys API has a small typed wrapper. Creation takes a local ref and owner scope; Attune returns the server-generated canonical ref:
+
+```java
+import io.attune.AttuneClient;
+import io.attune.CreateKeyRequest;
+import io.attune.KeyResponse;
+import io.attune.KeysApi;
+import io.attune.UpdateKeyRequest;
+
+AttuneClient client = new AttuneClient();
+KeysApi keys = client.keys();
+
+KeyResponse created = keys.create(CreateKeyRequest.pack(
+    "api_token",
+    "GitHub API token",
+    "secret-value",
+    "github"
+).withEncryption(true));
+
+System.out.println(created.ref());      // server-generated canonical ref
+System.out.println(created.localRef()); // api_token
+
+KeyResponse fetched = keys.get(created.ref());
+keys.update(created.ref(), new UpdateKeyRequest(null, "Rotated token", "new-secret"));
+keys.delete(created.ref());
+```
+
+`keys.list()` returns a `KeyPage` of redacted `KeySummary` values. Use the four-argument overload to filter by owner and set pagination.
+
+Use `CreateKeyRequest.system`, `identity`, `pack`, `action`, or `sensor` to create a request with the matching owner selector. The constructor rejects missing, mismatched, or mixed owner selectors.
 
 ## Writing Sensors
 
