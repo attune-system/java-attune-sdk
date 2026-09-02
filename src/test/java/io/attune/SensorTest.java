@@ -189,6 +189,12 @@ class SensorTest {
     }
 
     @Test
+    void emitUsesNumericRuleIdForTriggerInstance() {
+        RuleState rule = new RuleState(42, "mypack.my_rule", "mypack.trigger", Map.of(), true);
+        assertEquals("rule_42", Sensor.triggerInstanceId(rule));
+    }
+
+    @Test
     void notifierReconnectUsesUpdatedTokenState() throws Exception {
         AtomicReference<String> token = new AtomicReference<>("token-1");
         Sensor sensor = new Sensor() {

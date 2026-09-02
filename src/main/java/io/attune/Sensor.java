@@ -202,7 +202,7 @@ public class Sensor {
         body.put("payload", payload);
         body.put("source", context.sensorRef());
         if (rule != null) {
-            body.put("trigger_instance_id", "rule_" + rule.ruleRef());
+            body.put("trigger_instance_id", triggerInstanceId(rule));
             if (options.targetRule()) {
                 body.put("rule_ref", rule.ruleRef());
             }
@@ -219,6 +219,10 @@ public class Sensor {
                 return null;
             }
         }
+    }
+
+    static String triggerInstanceId(RuleState rule) {
+        return "rule_" + rule.ruleId();
     }
 
     @SuppressWarnings("unchecked")
