@@ -3,19 +3,32 @@ name: Publish to Maven Central
 on:
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      prerelease:
+        required: true
+        type: boolean
+      ref:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   publish:
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ inputs.ref != '' || github.event_name == 'release' }}
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.event.release.tag_name }}
 
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6
         with:
           distribution: temurin
           java-version: "17"
@@ -27,9 +40,11 @@ jobs:
           gpg-passphrase-env-var: MAVEN_GPG_PASSPHRASE
 
       - name: Verify release version
+        env:
+          EXPECTED_VERSION: ${{ inputs.version || github.event.release.tag_name }}
         run: |
           version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          test "v${version}" = "${GITHUB_REF_NAME}"
+          test "$version" = "${EXPECTED_VERSION#v}"
 
       - name: Publish to Maven Central
         run: mvn --batch-mode --no-transfer-progress -Prelease deploy
