@@ -10,7 +10,7 @@ A lightweight Java library providing boilerplate for writing [Attune](https://gi
 <dependency>
     <groupId>org.attunedev</groupId>
     <artifactId>attune-sdk</artifactId>
-    <version>0.2.6</version>
+    <version>0.2.7</version>
 </dependency>
 ```
 
