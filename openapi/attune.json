@@ -11,7 +11,7 @@
       "name": "Apache 2.0",
       "url": "https://opensource.org/license/apache-2.0"
     },
-    "version": "0.7.1"
+    "version": "0.7.3"
   },
   "servers": [
     {
@@ -11696,6 +11696,26 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/api/v1/info": {
+      "get": {
+        "tags": [
+          "info"
+        ],
+        "operationId": "get_info",
+        "responses": {
+          "200": {
+            "description": "Build identity of the responding API process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_BuildInfo"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/inquiries": {
@@ -24099,6 +24119,40 @@
           }
         }
       },
+      "ApiResponse_BuildInfo": {
+        "type": "object",
+        "description": "Standard API response wrapper",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Identity compiled into this binary, never read from deployment-time environment variables.",
+            "required": [
+              "version",
+              "git_sha"
+            ],
+            "properties": {
+              "git_sha": {
+                "type": "string",
+                "description": "Full source commit SHA, or \"unknown\" when the build had no revision metadata."
+              },
+              "version": {
+                "type": "string",
+                "description": "Semantic version of the platform workspace."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional message"
+          }
+        }
+      },
       "ApiResponse_BuildPackEnvsResponse": {
         "type": "object",
         "description": "Standard API response wrapper",
@@ -28852,6 +28906,24 @@
           "dashboards"
         ]
       },
+      "BuildInfo": {
+        "type": "object",
+        "description": "Identity compiled into this binary, never read from deployment-time environment variables.",
+        "required": [
+          "version",
+          "git_sha"
+        ],
+        "properties": {
+          "git_sha": {
+            "type": "string",
+            "description": "Full source commit SHA, or \"unknown\" when the build had no revision metadata."
+          },
+          "version": {
+            "type": "string",
+            "description": "Semantic version of the platform workspace."
+          }
+        }
+      },
       "BuildPackEnvsRequest": {
         "type": "object",
         "description": "Request DTO for building pack environments",
@@ -30372,7 +30444,8 @@
             "description": "Tolerations that allow scheduling onto workers with matching taints.",
             "default": []
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreateArtifactRequest": {
         "type": "object",
@@ -30692,9 +30765,7 @@
         "type": "object",
         "description": "Request DTO for creating a manual execution",
         "required": [
-          "action_ref",
-          "parameters",
-          "env_vars"
+          "action_ref"
         ],
         "properties": {
           "action_ref": {
@@ -30723,11 +30794,27 @@
             ]
           },
           "env_vars": {
-            "type": "object",
-            "description": "Environment variables for this execution"
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Environment overrides for this execution. ATTUNE_ names are reserved for internal use.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "example": {
+              "DEBUG": "true",
+              "LOG_LEVEL": "info"
+            }
           },
           "parameters": {
-            "type": "object",
+            "type": [
+              "object",
+              "null"
+            ],
             "description": "Execution parameters/configuration"
           },
           "permission_set_refs": {
@@ -31406,7 +31493,8 @@
             "description": "Trigger reference that activates this rule",
             "example": "system.error_event"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreateRuntimeRequest": {
         "type": "object",
@@ -31823,7 +31911,8 @@
           "update_strategy": {
             "$ref": "#/components/schemas/WorkQueueUpdateStrategy"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreateWorkflowRequest": {
         "type": "object",
@@ -41976,7 +42065,8 @@
             },
             "description": "Tolerations that allow scheduling onto workers with matching taints."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "UpdateArtifactRequest": {
         "type": "object",
@@ -42705,7 +42795,8 @@
             "description": "Trigger reference that activates this rule",
             "example": "system.error_event"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "UpdateRuntimeRequest": {
         "type": "object",
@@ -43143,7 +43234,8 @@
               }
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "UpdateWorkflowRequest": {
         "type": "object",
@@ -44487,6 +44579,10 @@
     {
       "name": "health",
       "description": "Health check endpoints"
+    },
+    {
+      "name": "info",
+      "description": "Public API process build identity"
     },
     {
       "name": "auth",
